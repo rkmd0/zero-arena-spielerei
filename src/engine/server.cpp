@@ -1090,6 +1090,8 @@ void rundedicatedserver()
 {
     dedicatedserver = true;
     logoutf("dedicated server started, waiting for clients...");
+    srand(time(NULL));
+
 #ifdef WIN32
     SetPriorityClass(GetCurrentProcess(), HIGH_PRIORITY_CLASS);
 	for(;;)

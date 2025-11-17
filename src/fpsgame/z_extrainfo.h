@@ -115,7 +115,7 @@ struct z_extrainfo
     z_queue<int> af_text, af_rename, af_team;
     char *disc_reason;
     int nodamage;
-    bool slay, invpriv;
+    bool slay, invpriv, spec, afk;
     char *wlauth;
     bool specmute, editmute, namemute;
     int chatmute;
@@ -153,7 +153,9 @@ struct z_extrainfo
         DELETEA(disc_reason);
         nodamage = 0;
         slay = false;
+        afk = false;
         invpriv = false;
+        spec = false;
         specmute = editmute = namemute = false;
         chatmute = 0;
         lastchat = lastedit = 0;

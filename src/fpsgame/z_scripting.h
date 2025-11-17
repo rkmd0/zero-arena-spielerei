@@ -144,6 +144,35 @@ static void z_autospec_process(void *)
 VARF(autospecsecs, 0, 0, 604800, z_autospec_process(NULL));
 
 
+extern int autospec;
+extern int mindiff;
+extern bool hasstarted();
+// auto putting CS_DEAD players to spectator mode
+static void z_autospec(void *)
+{
+    z_clearsleep(z_sleeps[ZS_AUTOSPEC]);
+    if(!autospec) return;
+    //int mindiff = 5*1000; // 10 secs by default
+    loopv(clients)
+    {
+        if(!m_mp(gamemode) || m_edit || interm) break;
+        clientinfo *ci = clients[i];
+        bool gamestarted = hasstarted();
+        if(ci->spy || ci->state.aitype != AI_NONE || ci->state.state != CS_DEAD) continue; // skip spies, bots and non-dead players - thanks zero
+        if(ci->xi.spec && ci->state.state == CS_DEAD && gamestarted /*gamemillis >= 4500*/ ) {
+            forcespectator(ci);
+            sendf(ci->clientnum, 1, "ris", N_SERVMSG, "You got specced! Wait til next round to get unspecced. Alternatively, unset #spec.");
+            continue;
+            }
+        }
+    // putting the player, once intermission is there, to unspec (CS_ALIVE)
+
+    z_addsleep(z_sleeps[ZS_AUTOSPEC], 0, mindiff, false, z_autospec, NULL, NULL);
+}
+VARF(autospec, 0, 0, 1, z_autospec(NULL));
+VAR(mindiff, 0, 0, 100000);
+
+
 void s_write(int *cn, char *msg)
 {
     if(!getclientinfo(*cn)) return;

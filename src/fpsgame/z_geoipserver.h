@@ -12,6 +12,63 @@
 #error "want z_geoip.h"
 #endif
 
+//#include "j_name_history.h"
+
+
+#ifdef J_NAME_HISTORY_H
+#error "already j_name_history.h"
+#endif
+#define J_NAME_HISTORY_H
+
+VAR(whois_history, 0, 1, 1);
+VAR(whois_history_size, 4, 8, 16);
+VAR(whois_history_priv, PRIV_NONE, PRIV_AUTH, PRIV_ADMIN);
+VAR(whois_history_color, 0, 7, 8);
+
+struct historyentry {
+    string name;
+};
+vector<historyentry> empty;
+hashtable<uint, vector<historyentry> > name_history;
+
+void j_addname(uint ip, const char *name) {
+    if(!whois_history) return;
+    uint range = ip & 0x00FFFFFF; // /24 range
+    if(!name_history.find(range, empty).length()) {
+        vector<historyentry> v;
+        historyentry h;
+        copystring(h.name, name);
+        v.add(h);
+        name_history[range] = v;
+        return;
+    }
+    vector<historyentry> &v = name_history[range];
+    loopvrev(v) if(!strcmp(v[i].name, name)) { v.remove(i); break; }
+    historyentry h;
+    copystring(h.name, name);
+    v.add(h);
+    while(v.length() > whois_history_size) v.remove(0);
+}
+
+vector<historyentry> j_findnames(uint ip) {
+    uint range = ip & 0x00FFFFFF;
+    return name_history.find(range, empty);
+}
+
+void j_send_name_history(int sender, int priv, clientinfo *ci) {
+    if(!whois_history || priv < whois_history_priv) return;
+    vector<historyentry> names = j_findnames(getclientip(ci->clientnum));
+    string history = "";
+    if(names.length() <= 1) return;
+    loopv(names) {
+        if(i >= names.length() - 1) break; // skip last name, always matches the current one
+        concatstring(history, " ");
+        concatstring(history, names[i].name);
+        if(i < names.length() - 2) concatstring(history, "\fs\f7,\fr");
+    }
+    sendf(sender, 1, "ris", N_SERVMSG, tempformatstring("%s is also known as:\f%d%s", colorname(ci), whois_history_color, history));
+}
+
 
 VAR(geoip_admin_restriction, 0, 1, 1);  // restrictions shall apply for lower than admin privs, or lower than master?
 
@@ -266,6 +323,19 @@ void z_servcmd_geoip(int argc, char **argv, int sender)
 SCOMMAND(geoip, PRIV_NONE, z_servcmd_geoip);
 SCOMMAND(getip, ZC_HIDDEN | PRIV_NONE, z_servcmd_geoip);
 
+bool hasstarted()
+{
+    loopv(clients)
+    {
+        if (clients[i]->state.state == CS_ALIVE && clients[i]->state.istraitor)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+
 // TODO: move this logic to somewhere else
 void z_servcmd_whois(int argc, char **argv, int sender)
 {
@@ -320,6 +390,20 @@ void z_servcmd_whois(int argc, char **argv, int sender)
     if(ci->xi.specmute) sendf(sender, 1, "ris", N_SERVMSG, tempformatstring("%s is specmuted", cname));
     if(z_applyspecban(ci, false, true)) sendf(sender, 1, "ris", N_SERVMSG, tempformatstring("%s is specbanned", cname));
     if(ci->warned) sendf(sender, 1, "ris", N_SERVMSG, tempformatstring("%s has modified map \"%s\"", cname, smapname));
+    if(ci->xi.slay) sendf(sender, 1, "ris", N_SERVMSG, tempformatstring("%s is a rando hoe", cname)); // mod request...
+    if(ci->xi.afk) sendf(sender, 1, "ris", N_SERVMSG, tempformatstring("%s is afk", cname));
+
+    // priv player should be able to see this
+    bool gamestarted = hasstarted();
+    if(gamestarted && (ci==sci || ispriv) && ci->state.state==CS_ALIVE)
+    {
+        if(ci->state.istraitor) sendf(sender, 1, "ris", N_SERVMSG, tempformatstring("%s is a \f3traitor\f7", cname));
+        if(!ci->state.istraitor) sendf(sender, 1, "ris", N_SERVMSG, tempformatstring("%s is an \f1innocent\f7", cname));
+    }
+
+
+    //name history
+    j_send_name_history(sender, sci->privilege, getinfo(cn));
 
     uint mspassed = uint(totalmillis-ci->connectmillis);
     if(mspassed/1000 != 0)

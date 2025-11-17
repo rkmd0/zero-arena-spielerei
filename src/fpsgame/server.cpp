@@ -125,6 +125,8 @@ namespace server
         int suicides, explosivedamage, hits, misses, shots; // zeromod
         int lasttimeplayed, timeplayed;
         float effectiveness;
+        //tstmod
+        bool istraitor;        
         // zeromod
         int stolen, returned, maxstreak;
         int lastkill, multikills, rampage;
@@ -159,6 +161,8 @@ namespace server
             stolen = returned = maxstreak = 0;
             DELETEP(teaminfos);
             statemillis = totalmillis;
+            //tstmod
+            istraitor = false;
 
             respawn();
         }
@@ -171,6 +175,8 @@ namespace server
             lastspawn = -1;
             lastshot = 0;
             tokens = 0;
+            //tstmod
+            istraitor = false;
             lastkill = multikills = rampage = 0;
         }
 
@@ -713,7 +719,6 @@ namespace server
 		}
 	});
     SVAR(servermotd, "");
-    VAR(specchat, 0, 1, 1);
 
     // old alias
     VARF(serverrecorddemo, 0, 0, 1, autorecorddemo = serverrecorddemo);
@@ -861,6 +866,18 @@ namespace server
          sendf(-1, 1, "ris", N_SERVMSG, s);
     }
 
+    void msgf(int cn, const char *fmt...)
+    {
+        defvformatstring(s, fmt, fmt);
+        sendf(cn, 1, "ris", N_SERVMSG, s);
+    }
+    void msgf(clientinfo *ci, const char *fmt...)
+    {
+        defvformatstring(s, fmt, fmt);
+        sendf(ci->clientnum, 1, "ris", N_SERVMSG, s);
+    }
+
+
     void resetitems()
     {
         mcrc = 0;
@@ -989,14 +1006,7 @@ namespace server
         virtual bool shouldhidepos(clientinfo *ci) { return shouldblockgameplay(ci); }
     };
 
-    #define SERVMODE 1
-    #include "capture.h"
-    #include "ctf.h"
-    #include "collect.h"
 
-    captureservmode capturemode;
-    ctfservmode ctfmode;
-    collectservmode collectmode;
     servmode *smode = NULL;
 
     bool canspawnitem(int type) { return !m_noitems && (type>=I_SHELLS && type<=I_QUAD && (!m_noammo || type<I_SHELLS || type>I_CARTRIDGES)); }
@@ -2244,6 +2254,20 @@ namespace server
     VAR(gamelimit_overtime, 0, 0, 1);   // use m_overtime?
     VAR(persistbots, 0, 0, 1);
 
+    #define SERVMODE 1
+    #include "capture.h"
+    #include "ctf.h"
+    #include "collect.h"
+    #include "tstmod.h"
+
+    captureservmode capturemode;
+    ctfservmode ctfmode;
+    collectservmode collectmode;
+    tstservmode tstmode;
+
+
+    extern void unspectate(clientinfo *ci);
+    
     void changemap(const char *s, int mode)
     {
         stopdemo();
@@ -2264,6 +2288,16 @@ namespace server
         scores.shrink(0);
         shouldcheckteamkills = false;
         teamkills.shrink(0);
+        loopv(clients) {
+
+            clientinfo *ci = clients[i];
+            if(ci->spy || ci->state.aitype != AI_NONE) continue;
+            if(ci->xi.spec && ci->state.state == CS_SPECTATOR) {
+                unspectate(ci);
+                ci->state.state = CS_DEAD;
+                continue;
+                } 
+        }
         loopv(clients)
         {
             clientinfo *ci = clients[i];
@@ -2274,11 +2308,15 @@ namespace server
 
         sendf(-1, 1, "risii", N_MAPCHANGE, smapname, gamemode, 1);
 
-        if(m_capture) smode = &capturemode;
-        else if(m_ctf) smode = &ctfmode;
-        else if(m_collect) smode = &collectmode;
-        else if(m_edit && z_racemode && smapname[0]) smode = &racemode;
-        else smode = NULL;
+        #ifdef TSTMOD
+            smode = &tstmode;
+        #else        
+            if(m_capture) smode = &capturemode;
+            else if(m_ctf) smode = &ctfmode;
+            else if(m_collect) smode = &collectmode;
+            else smode = NULL;
+        #endif
+
 
         clearteaminfo();
         if(m_teammode) autoteam();
@@ -2494,6 +2532,45 @@ namespace server
     #include "z_protectteamscores.h"
     #include "z_checkpos.h"
 
+#ifdef TSTMOD
+   
+   void dodamage(clientinfo *target, clientinfo *actor, int damage, int gun, const vec &hitpush = vec(0, 0, 0)) {
+
+        if (gamemillis < tstservmode::STARTMILLIS) return; // HERE'S YOUR F7UCKING PREGAME INVUL. BIATCH
+
+        gamestate &ts = target->state;
+        ts.dodamage(damage);
+
+        sendf(actor->clientnum, 1, "ri6", N_DAMAGE, target->clientnum, actor->clientnum, damage, ts.armour, ts.health);
+        loopv(clients) if (clients[i] != actor) {
+            sendf(clients[i]->clientnum, 1, "ri6", N_DAMAGE, target->clientnum, target->clientnum, damage, ts.armour, ts.health);
+        }
+
+        if(target==actor) target->setpushed();
+
+        else if(!hitpush.iszero())
+        {
+            ivec v(vec(hitpush).rescale(DNF));
+            sendf(ts.health<=0 ? -1 : target->ownernum, 1, "ri7", N_HITPUSH, target->clientnum, gun, damage, v.x, v.y, v.z);
+            target->setpushed();
+        }
+
+        if(ts.health<=0)
+        {
+            target->state.deaths++;
+
+            sendf(-1, 1, "ri5", N_DIED, target->clientnum, target->clientnum, target->state.frags, 0);
+            target->position.setsize(0);
+            ts.state = CS_DEAD;
+            ts.lastdeath = gamemillis;
+            ts.deadflush = ts.lastdeath + DEATHMILLIS;
+            if(smode) smode->died(target, actor);
+        }
+    }
+#elif
+
+
+
     void dodamage(clientinfo *target, clientinfo *actor, int damage, int gun, const vec &hitpush = vec(0, 0, 0))
     {
         gamestate &ts = target->state;
@@ -2550,6 +2627,9 @@ namespace server
         }
     }
 
+    #endif
+
+
     void suicide(clientinfo *ci)
     {
         gamestate &gs = ci->state;
@@ -2562,10 +2642,10 @@ namespace server
         if(t && z_acceptfragval(ci, fragvalue)) t->frags += fragvalue;
         sendf(-1, 1, "ri5", N_DIED, ci->clientnum, ci->clientnum, gs.frags, t ? t->frags : 0);
         ci->position.setsize(0);
-        if(smode) smode->died(ci, NULL);
         gs.state = CS_DEAD;
         gs.statemillis = totalmillis;
         z_clientdied(ci);
+        if(smode) smode->died(ci, NULL);
         gs.lastdeath = gamemillis;
         gs.respawn();
     }
@@ -3699,12 +3779,7 @@ namespace server
             case N_SAYTEAM:
             {
                 getstring(text, p);
-                if(!ci || !cq) break;
-                if(cq->state.state==CS_SPECTATOR)
-                {
-                    if(!specchat && !ci->local && !ci->privilege) break;
-                }
-                else if (!m_teammode || !cq->team[0]) break;
+                if(!ci || !cq || (cq->state.state!=CS_SPECTATOR && !m_teammode) || !cq->team[0]) break;
                 Z_ANTIFLOOD(ci, N_SAYTEAM);
                 if(!allowmsg(ci, cq, type)) break;
                 filtertext(text, text, true, true);
@@ -3728,8 +3803,7 @@ namespace server
                 loopv(clients)
                 {
                     clientinfo *t = clients[i];
-                    if(t==cq || t->state.aitype != AI_NONE) continue;
-                    if(t->state.state==CS_SPECTATOR || strcmp(cq->team, t->team)) continue;
+                    if(t==cq || t->state.state==CS_SPECTATOR || t->state.aitype != AI_NONE || strcmp(cq->team, t->team)) continue;
                     sendf(t->clientnum, 1, "riis", N_SAYTEAM, cq->clientnum, text);
                 }
                 z_log_sayteam(cq, text, cq->team);
