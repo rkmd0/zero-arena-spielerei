@@ -2265,6 +2265,9 @@ namespace server
     collectservmode collectmode;
     tstservmode tstmode;
 
+    #include "z_arena.h"
+    arenaservmode arenamode;
+
 
     extern void unspectate(clientinfo *ci);
     
@@ -2309,7 +2312,7 @@ namespace server
         sendf(-1, 1, "risii", N_MAPCHANGE, smapname, gamemode, 1);
 
         #ifdef TSTMOD
-            smode = &tstmode;
+            smode = arena ? (servmode*)&arenamode : (servmode*)&tstmode;
         #else        
             if(m_capture) smode = &capturemode;
             else if(m_ctf) smode = &ctfmode;
