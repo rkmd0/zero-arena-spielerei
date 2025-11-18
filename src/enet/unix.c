@@ -54,7 +54,7 @@
 #endif
 
 #ifndef HAS_SOCKLEN_T
-typedef int socklen_t;
+//typedef int socklen_t;
 #endif
 
 #ifndef MSG_NOSIGNAL
