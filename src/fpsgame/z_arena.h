@@ -1,8 +1,7 @@
-// src/fpsgame/z_arena.h
-#ifdef Z_ARENA_H
-#error "already z_arena.h"
-#endif
+
+#ifndef Z_ARENA_H
 #define Z_ARENA_H
+
 
 // Quake/Clan-Arena style round-based mode implemented as a servmode.
 // Toggle with the cvar `arena` (0/1).
@@ -57,8 +56,17 @@ struct arenaservmode : servmode
     void spawn_with_loadout(clientinfo *ci)
     {
         if(!ci) return;
-        gamestate &gs = ci->state;
+        // trigger a spawn (this will cause the client to actually spawn)
         sendspawn(ci); // normal spawnstate(gamemode)
+        // apply the loadout after sendspawn so the client receives the overridden state
+        // without causing duplicate sendspawn calls when `spawned()` is invoked.
+        apply_loadout(ci);
+    }
+
+    void apply_loadout(clientinfo *ci)
+    {
+        if(!ci) return;
+        gamestate &gs = ci->state;
 
         gs.health = clamp(arena_health, 1, 200);
         gs.maxhealth = gs.health;
@@ -140,7 +148,7 @@ struct arenaservmode : servmode
     void spawned(clientinfo *ci)
     {
         if(!arena) return;
-        if(state==RS_PREROUND || state==RS_ACTIVE) spawn_with_loadout(ci);
+        if(state==RS_PREROUND || state==RS_ACTIVE) apply_loadout(ci);
     }
 
     void entergame(clientinfo *ci)
@@ -170,7 +178,7 @@ void died(clientinfo *victim, clientinfo *actor)
     {
         sendf(-1, 1, "ri2", N_FORCEDEATH, victim->clientnum);
         victim->state.state = CS_DEAD;
-        victim->state.statemillis = gamemillis;
+        victim->state.statemillis = totalmillis;
     }
     check_end();
 }
@@ -236,3 +244,5 @@ void died(clientinfo *victim, clientinfo *actor)
 
     bool hidefrags() { return arena != 0; } // optional: hide frag list while in Arena
 };
+
+#endif
