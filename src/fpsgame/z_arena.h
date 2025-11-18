@@ -35,6 +35,7 @@ struct arenaservmode : servmode
     int statechangemillis;
     int roundstartmillis;
     int roundnum;
+    // bool game_has_started = false;
 
     arenaservmode() : state(RS_WAITING), statechangemillis(0), roundstartmillis(0), roundnum(0) {}
 
@@ -48,7 +49,7 @@ struct arenaservmode : servmode
     int countteamalive(const char *team) const
     {
         int n = 0; loopv(clients){ clientinfo *ci = clients[i]; if(!participating(ci) || !alive(ci)) continue;
-            if(!m_teammode || !strcmp(ci->team, team)) n++; } return n;
+            if(!strcmp(ci->team, team)) n++; } return n;
     }
 
     void setnodamage(int on) { extern int servernodamage; servernodamage = on; }
@@ -90,7 +91,7 @@ struct arenaservmode : servmode
     void forceroundreset()
     {
         loopv(clients){ clientinfo *ci = clients[i];
-            if(!ci || ci->state.state==CS_SPECTATOR) continue;
+            if(/*(*/!ci || ci->state.state==CS_SPECTATOR/*) && game_has_started == true*/) continue;
             if(ci->state.state==CS_ALIVE)
             {
                 sendf(-1, 1, "ri2", N_FORCEDEATH, ci->clientnum);
@@ -162,12 +163,17 @@ struct arenaservmode : servmode
         if(state==RS_ACTIVE) check_end();
     }
 
-    void died(clientinfo *victim, clientinfo *actor)
+void died(clientinfo *victim, clientinfo *actor)
+{
+    if(!arena) return;
+    if(arena_staydead && victim->state.state != CS_SPECTATOR)
     {
-        if(!arena) return;
-        if(arena_staydead && victim->state.state!=CS_SPECTATOR) victim->state.respawn();
-        check_end();
+        sendf(-1, 1, "ri2", N_FORCEDEATH, victim->clientnum);
+        victim->state.state = CS_DEAD;
+        victim->state.statemillis = gamemillis;
     }
+    check_end();
+}
 
     void setup()
     {
@@ -208,7 +214,7 @@ struct arenaservmode : servmode
                 if(should_start_round())
                 {
                     roundnum++; sendservmsgf("Round %d starting...", roundnum);
-                    setnodamage(1); spawn_all_participants();
+                    setnodamage(1); forceroundreset(); spawn_all_participants();
                     state = RS_PREROUND; statechangemillis = gamemillis;
                 }
                 break;
